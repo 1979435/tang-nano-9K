@@ -20,6 +20,178 @@ module MMC0(input clk, input ce,
   assign vram_a10 = flags[14] ? chr_ain[10] : chr_ain[11];
 endmodule
 
+// 原本mister NES_MiSTer NES.sv
+// Read the mapper number
+// wire [7:0] mapper = {is_dirty ? 4'b0000 : ines[7][7:4], ines[6][7:4]};
+// wire [7:0] ines2mapper = {is_nes20 ? ines[8] : 8'h00};
+// wire [3:0] prgram = {is_nes20 ? ines[10][3:0] : 4'h0};
+// wire [3:0] prg_nvram = (is_nes20 ? ines[10][7:4] : 4'h0);
+// wire       piano = is_nes20 && (ines[15][5:0] == 6'h19);
+// wire has_saves = ines[6][1];
+
+// assign mapper_flags[63:35] = 'd0;
+// assign mapper_flags[34:31] = prg_nvram; //NES 2.0 Save RAM shift size (64 << size)
+// assign mapper_flags[30]    = piano;
+// assign mapper_flags[29:26] = prgram; //NES 2.0 PRG RAM shift size (64 << size)
+// assign mapper_flags[25]    = has_saves;
+// assign mapper_flags[24:17] = ines2mapper; //NES 2.0 submapper
+// assign mapper_flags[16]    = ines[6][3]; // 4 screen mode
+// assign mapper_flags[15]    = has_chr_ram;
+// assign mapper_flags[14]    = ines[6][0]; // mirroring
+// assign mapper_flags[13:11] = chr_size;
+// assign mapper_flags[10:8]  = prg_size;
+// assign mapper_flags[7:0]   = mapper;
+// 原本mister
+
+
+// ines6
+// 76543210
+// ||||||||
+// |||||||+- Nametable arrangement: 0: vertical arrangement ("horizontal mirrored") (CIRAM A10 = PPU A11)
+// |||||||                          1: horizontal arrangement ("vertically mirrored") (CIRAM A10 = PPU A10)
+// ||||||+-- 1: Cartridge contains battery-backed PRG RAM ($6000-7FFF) or other persistent memory
+// |||||+--- 1: 512-byte trainer at $7000-$71FF (stored before PRG data)
+// ||||+---- 1: Alternative nametable layout
+// ++++----- Lower nybble of mapper number
+
+// assign mapper_flags = {8'b0, ines[7][3:0], ines[6][3:0],has_chr_ram, ines[6][0], chr_size, prg_size, mapper};
+
+// assign mapper_flags[16]    = ines[6][3]; // 4 screen mode
+// assign mapper_flags[15]    = has_chr_ram;
+// assign mapper_flags[14]    = ines[6][0]; // mirroring
+// assign mapper_flags[13:11] = chr_size;
+// assign mapper_flags[10:8]  = prg_size;
+// assign mapper_flags[7:0]   = mapper;
+
+
+// flags[31:24]  为空       8'b0
+// flags[23:20] ines[7]     4'b0    
+// flags[19:16] ines[6]     4'b0        
+// ---
+// flags[15]    has_chr_ram 1'b0
+// flgas[14]    ines[6][0]  1'b0          mirroring nametable arrangement
+// flags[13:11] chr_size    3'b000
+// flags[10:8]  prg_size    3'b000
+// flags[7:0]   mapper      8'b0000000
+
+// 30-UNROM512
+module Mapper30(
+	input        clk,         // System clock
+	input        ce,          // M2 ~cpu_clk
+  input reset,
+	// input        enable,      // Mapper enabled
+	input [31:0] flags,       // Cart flags // Misc flags from ines header {prg_size(3), chr_size(3), mapper(8)}
+	input [15:0] prg_ain,     // prg address
+	output [21:0] prg_aout,  // prg address out
+	input        prg_read,    // prg read
+	input        prg_write,   // prg write
+	input  [7:0] prg_din,     // prg data in
+	output        prg_allow, // Enable access to memory for the specified operation.
+	input [13:0] chr_ain,     // chr address in
+	output [21:0] chr_aout,  // chr address out
+	// input        chr_read,    // chr ram read
+	output        chr_allow, // chr allow write
+	output        vram_a10,  // Value for A10 address line
+	output        vram_ce   // True if the address should be routed to the internal 2kB VRAM.
+	// output        irq,       // IRQ
+	// input [15:0] audio_in,    // Inverted audio from APU
+	// output [15:0] audio_out,     // Mixed audio output
+	// output [15:0] flags_out  // flags {0, 0, 0, 0, has_savestate, prg_conflict, prg_bus_write, has_chr_dout}
+);
+
+// init
+// assign prg_aout_b   = enable ? prg_aout : 22'hZ;
+// assign prg_dout_b   = enable ? 8'hFF : 8'hZ;
+// assign prg_allow_b  = enable ? prg_allow : 1'hZ;
+// assign chr_aout_b   = enable ? chr_aout : 22'hZ;
+// assign chr_allow_b  = enable ? chr_allow : 1'hZ;
+// assign vram_a10_b   = enable ? vram_a10 : 1'hZ;
+// assign vram_ce_b    = enable ? vram_ce : 1'hZ;
+// assign irq_b        = enable ? 1'b0 : 1'hZ;
+// assign flags_out_b  = enable ? flags_out : 16'hZ;
+// assign audio_b      = enable ? {1'b0, audio_in[15:1]} : 16'hZ;
+
+// wire [21:0] prg_aout, chr_aout;
+// wire prg_allow;
+// wire chr_allow;
+// reg vram_a10;
+// wire vram_ce;
+// reg [15:0] flags_out = 0;
+
+reg [4:0] prgbank;
+reg [1:0] chrbank;
+reg nametable;
+
+// ines6
+// 76543210
+// ||||||||
+// |||||||+- Nametable arrangement: 0: vertical arrangement ("horizontal mirrored") (CIRAM A10 = PPU A11)
+// |||||||                          1: horizontal arrangement ("vertically mirrored") (CIRAM A10 = PPU A10)
+// ||||||+-- 1: Cartridge contains battery-backed PRG RAM ($6000-7FFF) or other persistent memory
+// |||||+--- 1: 512-byte trainer at $7000-$71FF (stored before PRG data)
+// ||||+---- 1: Alternative nametable layout
+// ++++----- Lower nybble of mapper number
+
+//  原本mister flags[14] 是mirror
+//  原本mister flags[16] 是 4_scresn
+//                        [31:24]   [23:20]      [19:16]       [15]        [14]      [13:11]   [10:8]    [7:0]
+// assign mapper_flags = {8'b0, ines[7][3:0], ines[6][3:0],has_chr_ram, ines[6][0], chr_size, prg_size, mapper};
+
+// four_screen判断
+// 不要用flags[16] 用 flag[19] - flag[16] ines[6][3:0]来判断
+// 所以用 ines[6][3] 既flags[19]
+// wire four_screen = flags[16] && flags[14];
+// wire four_screen = flags[19] && flags[14];
+wire four_screen = 1'b0;
+
+//  原本mister  flags[25] has_saves
+// wire battery = flags[25];
+// 使用flag[17] ines[6][1]
+// wire battery = flags[17];
+wire battery = 1'b0;
+
+wire has_chr_ram = flags[15];
+
+always @(posedge clk) if (reset) begin
+		prgbank   <= 5'b11111;
+		chrbank   <= 0;
+		nametable <= 0;
+	end else if (ce) begin
+		// with battery bit set $C000-$FFFF else $8000-$FFFF
+    // if (prg_ain[15] & (prg_ain[14] | ~battery) & prg_write) begin
+    if (prg_ain[15] & prg_ain[14] & prg_write) begin
+			{nametable, chrbank, prgbank}   <= prg_din[7:0];
+		end
+end
+
+// always @* begin
+// 	// mirroring mode
+//   // casez({flags[16], flags[14]})
+// 	casez({flags[19], flags[14]})
+// 		3'b00   :   vram_a10 = chr_ain[11];    // horizontal
+// 		3'b01   :   vram_a10 = chr_ain[10];    // vertical
+// 		3'b10   :   vram_a10 = nametable;      // 1 screen
+// 		default :   vram_a10 = chr_ain[10];    // 4 screen
+// 	endcase
+// end
+
+assign prg_aout = {3'b000, (prg_ain[15:14] == 2'b11) ? 5'b11111 : prgbank, prg_ain[13:0]};
+assign prg_allow = prg_ain[15] && !prg_write;
+
+
+// assign chr_allow = has_chr_ram;
+assign chr_allow = flags[15];
+
+// assign chr_aout = {has_chr_ram ? 7'b11_1111_1 : 7'b10_0000_0, (four_screen && chr_ain[13]) ? 2'b11 : chrbank, chr_ain[12:0]};
+assign chr_aout = {has_chr_ram ? 7'b11_1111_1 : 7'b10_0000_0, chrbank, chr_ain[12:0]};
+
+
+// assign vram_ce = chr_ain[13] && !four_screen;
+assign vram_ce = chr_ain[13];
+assign vram_a10 = flags[14] ? chr_ain[10] : chr_ain[11];
+
+endmodule
+
 // MMC1 mapper chip. Maps prg or chr addresses into a linear address.
 // If vram_ce is set, {vram_a10, chr_aout[9:0]} are used to access the NES internal VRAM instead.
 module MMC1(input clk, input ce, input reset,
@@ -1574,6 +1746,11 @@ module MultiMapper(input clk, input ce, input ppu_ce, input reset,
   MMC0 mmc0(clk, ce, flags, prg_ain, mmc0_prg_addr, prg_read, prg_write, prg_din, mmc0_prg_allow,
                             chr_ain, mmc0_chr_addr, mmc0_chr_allow, mmc0_vram_a10, mmc0_vram_ce);
 
+  wire map30_prg_allow, map30_vram_a10, map30_vram_ce, map30_chr_allow;
+  wire [21:0] map30_prg_addr, map30_chr_addr;
+  Mapper30 map30(clk, ce, reset, flags, prg_ain, map30_prg_addr, prg_read, prg_write, prg_din, map30_prg_allow,
+                                   chr_ain, map30_chr_addr,map30_chr_allow,map30_vram_a10, map30_vram_ce );
+
   wire mmc1_prg_allow, mmc1_vram_a10, mmc1_vram_ce, mmc1_chr_allow;
   wire [21:0] mmc1_prg_addr, mmc1_chr_addr;
   MMC1 mmc1(clk, ce, reset, flags, prg_ain, mmc1_prg_addr, prg_read, prg_write, prg_din, mmc1_prg_allow,
@@ -1702,6 +1879,7 @@ module MultiMapper(input clk, input ce, input ppu_ce, input reset,
     case(flags[7:0])
     0, 2, 3, 7,
     28: {prg_aout, prg_allow, chr_aout, vram_a10, vram_ce, chr_allow}      = {map28_prg_addr, map28_prg_allow, map28_chr_addr, map28_vram_a10, map28_vram_ce, map28_chr_allow};
+    30: {prg_aout, prg_allow, chr_aout, vram_a10, vram_ce, chr_allow}      = {map30_prg_addr, map30_prg_allow, map30_chr_addr, map30_vram_a10, map30_vram_ce, map30_chr_allow};
     1:  {prg_aout, prg_allow, chr_aout, vram_a10, vram_ce, chr_allow}      = {mmc1_prg_addr, mmc1_prg_allow, mmc1_chr_addr, mmc1_vram_a10, mmc1_vram_ce, mmc1_chr_allow};
     9:  {prg_aout, prg_allow, chr_aout, vram_a10, vram_ce, chr_allow}      = {mmc2_prg_addr, mmc2_prg_allow, mmc2_chr_addr, mmc2_vram_a10, mmc2_vram_ce, mmc2_chr_allow};
     118, // TxSROM connects A17 to CIRAM A10.
