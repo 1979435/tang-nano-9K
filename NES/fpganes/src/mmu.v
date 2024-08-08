@@ -207,7 +207,7 @@ module Mapper2(input clk, input ce, input reset,
   
     // reg [3:0] inner;    // "inner" bank at 01h
     // reg [5:0] mode;     // mode register at 80h
-    reg [2:0] outer;    // "outer" bank at 81h  
+    reg [4:0] outer;    // "outer" bank at 81h  
     // reg [1:0] selreg;   // selector register
     
     // Allow writes to 0x5000 only when launching through the proper mapper ID.
@@ -216,7 +216,7 @@ module Mapper2(input clk, input ce, input reset,
         
     always @(posedge clk) if (reset) begin
       // mode[5:2] <= 0;         // NROM mode, 32K mode
-      outer[2:0] <= 3'b111;    // last bank
+      outer[4:0] <= 5'b11111;    // last bank
       // outer[2:0] <= 0;    // last bank
       // a53prg[3:0] <= 4'hf;
       // inner <= 0;
@@ -251,7 +251,7 @@ module Mapper2(input clk, input ce, input reset,
       //   endcase
       // end
       if (prg_ain[15] & prg_write) begin
-        {outer}            <= {prg_din[2:0]};                                    // "outer" bank
+        {outer}            <= {prg_din[4:0]};                                    // "outer" bank
       end
     end
     
@@ -299,7 +299,7 @@ module Mapper2(input clk, input ce, input reset,
   //                                 [6:0]
 
   // assign prg_aout = {4'b0000, a53prg , prg_ain[13:0]};
-  assign prg_aout = {5'b00000, (prg_ain[14] ? 4'b111 : outer[2:0]), prg_ain[13:0]};
+  assign prg_aout = {3'b000, (prg_ain[14] ? 5'b11111 : outer[4:0]), prg_ain[13:0]};
   // assign prg_aout = {7'b00_0000_0, prg_ain[14:0]};
   assign prg_allow = prg_ain[15] && !prg_write;
   assign chr_allow = flags[15];
