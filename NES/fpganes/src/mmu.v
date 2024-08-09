@@ -209,6 +209,7 @@ module Mapper2(input clk, input ce, input reset,
     // reg [5:0] mode;     // mode register at 80h
     reg [4:0] outer;    // "outer" bank at 81h  
     // reg [1:0] selreg;   // selector register
+    reg prg_is_ram;
     
     // Allow writes to 0x5000 only when launching through the proper mapper ID.
     wire [7:0] mapper = flags[7:0];
@@ -250,7 +251,11 @@ module Mapper2(input clk, input ce, input reset,
       //   2'h3:  {outer}            <= {prg_din[5:0]};                                    // "outer" bank
       //   endcase
       // end
-      if (prg_ain[15] & prg_write) begin
+      // if (prg_ain[15] & prg_write) begin
+      //   {outer}            <= {prg_din[4:0]};                                    // "outer" bank
+      // end
+
+      if ( (prg_ain[15] & (~(prg_ain >= 'h6000 && prg_ain < 'h8000) )) & prg_write) begin
         {outer}            <= {prg_din[4:0]};                                    // "outer" bank
       end
     end
@@ -299,9 +304,13 @@ module Mapper2(input clk, input ce, input reset,
   //                                 [6:0]
 
   // assign prg_aout = {4'b0000, a53prg , prg_ain[13:0]};
-  assign prg_aout = {3'b000, (prg_ain[14] ? 5'b11111 : outer[4:0]), prg_ain[13:0]};
   // assign prg_aout = {7'b00_0000_0, prg_ain[14:0]};
-  assign prg_allow = prg_ain[15] && !prg_write;
+
+  // assign prg_allow = prg_ain[15] && !prg_write;
+  assign prg_is_ram = (prg_ain >= 'h6000 && prg_ain < 'h8000);
+  assign prg_aout = prg_is_ram? {9'b11_1100_000, prg_ain[12:0]} : {3'b000, (prg_ain[14] ? 5'b11111 : outer[4:0]), prg_ain[13:0]};
+  assign prg_allow = prg_ain[15] && !prg_write || prg_is_ram ;
+
   assign chr_allow = flags[15];
 
   // assign chr_aout = {9'b11_1111_111, chr_ain[12:0]};
@@ -2005,7 +2014,7 @@ module MultiMapper(input clk, input ce, input ppu_ce, input reset,
     // 0, 2, 3, 7,
     0, 3, 7,
     28: {prg_aout, prg_allow, chr_aout, vram_a10, vram_ce, chr_allow}      = {map28_prg_addr, map28_prg_allow, map28_chr_addr, map28_vram_a10, map28_vram_ce, map28_chr_allow};
-    // 30: {prg_aout, prg_allow, chr_aout, vram_a10, vram_ce, chr_allow}      = {map30_prg_addr, map30_prg_allow, map30_chr_addr, map30_vram_a10, map30_vram_ce, map30_chr_allow};
+    30:  {prg_aout, prg_allow, chr_aout, vram_a10, vram_ce, chr_allow}      = {map2_prg_addr, map2_prg_allow, map2_chr_addr, map2_vram_a10, map2_vram_ce, map2_chr_allow};
     1:  {prg_aout, prg_allow, chr_aout, vram_a10, vram_ce, chr_allow}      = {mmc1_prg_addr, mmc1_prg_allow, mmc1_chr_addr, mmc1_vram_a10, mmc1_vram_ce, mmc1_chr_allow};
     9:  {prg_aout, prg_allow, chr_aout, vram_a10, vram_ce, chr_allow}      = {mmc2_prg_addr, mmc2_prg_allow, mmc2_chr_addr, mmc2_vram_a10, mmc2_vram_ce, mmc2_chr_allow};
     118, // TxSROM connects A17 to CIRAM A10.
